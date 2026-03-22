@@ -26,7 +26,9 @@ import {
 import { useEditorStore } from '@/lib/store/editor-store';
 
 export function EditorShell() {
-  const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements'>('text');
+  const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements' | 'settings'>('text');
+  const [fontSearch, setFontSearch] = useState('');
+  const [showFontPicker, setShowFontPicker] = useState(false);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const interactionState = useRef<
     | { mode: 'drag'; id: string; offsetX: number; offsetY: number }
@@ -61,6 +63,7 @@ export function EditorShell() {
       { id: 'images', label: 'Photos', icon: ImageIcon },
       { id: 'background', label: 'Background', icon: Palette },
       { id: 'elements', label: 'Elements', icon: Shapes },
+      { id: 'settings', label: 'Settings', icon: Sparkles },
     ] as const,
     [],
   );
@@ -73,17 +76,31 @@ export function EditorShell() {
   const canvasHeight = (page.canvas_data.page.height_px / 4) * zoom;
   const background = page.canvas_data.background.color || '#ffffff';
   const fontFamilies = [
-    'Inter',
-    'Playfair Display',
-    'Montserrat',
-    'Lora',
-    'Merriweather',
-    'Poppins',
-    'Libre Baskerville',
+    'Alegreya Sans',
     'Cormorant Garamond',
     'DM Sans',
-    'Alegreya Sans',
-  ];
+    'EB Garamond',
+    'Figtree',
+    'Inter',
+    'Josefin Sans',
+    'Libre Baskerville',
+    'Lora',
+    'Manrope',
+    'Merriweather',
+    'Montserrat',
+    'Nunito Sans',
+    'Open Sans',
+    'Oswald',
+    'Playfair Display',
+    'Plus Jakarta Sans',
+    'Poppins',
+    'Raleway',
+    'Roboto',
+    'Source Sans 3',
+    'Space Grotesk',
+    'Work Sans',
+  ].sort((a, b) => a.localeCompare(b));
+  const filteredFonts = fontFamilies.filter((font) => font.toLowerCase().includes(fontSearch.toLowerCase()));
 
   useEffect(() => {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
@@ -157,14 +174,6 @@ export function EditorShell() {
     if (!selectedElementId) return;
 
     updateElementStyle(selectedElementId, { textAlign: align });
-  };
-
-  const renderTextPreview = (text: string, dotLeaders?: boolean) => {
-    if (!dotLeaders) return text;
-    const [left, right] = text.split('|').map((part) => part.trim());
-    if (!right) return text;
-
-    return `${left} ${'.'.repeat(28)} ${right}`;
   };
 
   return (
@@ -316,6 +325,39 @@ export function EditorShell() {
                 </div>
               </div>
             )}
+
+            {activeTool === 'settings' && (
+              <div className="rounded-[24px] bg-white/5 p-4">
+                <div className="text-sm font-semibold text-white">Project settings</div>
+                <div className="mt-4 space-y-3">
+                  <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
+                    Paper size
+                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
+                      <option>A4</option>
+                      <option>A5</option>
+                      <option>Letter</option>
+                      <option>Legal</option>
+                      <option>Custom</option>
+                    </select>
+                  </label>
+                  <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
+                    Orientation
+                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
+                      <option>Portrait</option>
+                      <option>Landscape</option>
+                    </select>
+                  </label>
+                  <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
+                    Border / bleed
+                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
+                      <option>3 mm print bleed</option>
+                      <option>5 mm safe margin</option>
+                      <option>No border</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -357,22 +399,51 @@ export function EditorShell() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="pointer-events-auto absolute left-6 right-6 top-[98px] z-30 rounded-[28px] border border-white/10 bg-[#08132d]/95 p-4 shadow-2xl backdrop-blur-xl"
+              className="pointer-events-auto absolute left-6 right-[364px] top-[98px] z-30 rounded-[28px] border border-white/10 bg-[#08132d]/95 p-4 shadow-2xl backdrop-blur-xl"
             >
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex max-w-[460px] gap-2 overflow-x-auto">
-                  {fontFamilies.map((font) => (
-                    <button
-                      key={font}
-                      onClick={() => updateElementStyle(selectedElement.id, { fontFamily: font })}
-                      className={`min-w-fit rounded-2xl border px-4 py-3 text-left text-sm ${
-                        selectedElement.style?.fontFamily === font ? 'border-cyan-300/60 bg-cyan-300/10 text-white' : 'border-white/10 bg-white/5 text-slate-300'
-                      }`}
-                      style={{ fontFamily: font }}
-                    >
-                      {font}
-                    </button>
-                  ))}
+                <div className="relative min-w-[280px] max-w-[320px]">
+                  <button
+                    onClick={() => setShowFontPicker((value) => !value)}
+                    className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-100"
+                    style={{ fontFamily: String(selectedElement.style?.fontFamily || 'Inter') }}
+                  >
+                    <span>{String(selectedElement.style?.fontFamily || 'Inter')}</span>
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                  </button>
+
+                  <AnimatePresence>
+                    {showFontPicker && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 8 }}
+                        className="absolute left-0 top-16 z-40 w-full rounded-[24px] border border-white/10 bg-slate-950/95 p-3 shadow-2xl"
+                      >
+                        <input
+                          value={fontSearch}
+                          onChange={(event) => setFontSearch(event.target.value)}
+                          placeholder="Search fonts"
+                          className="mb-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                        />
+                        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                          {filteredFonts.map((font) => (
+                            <button
+                              key={font}
+                              onClick={() => {
+                                updateElementStyle(selectedElement.id, { fontFamily: font });
+                                setShowFontPicker(false);
+                              }}
+                              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-100 hover:border-cyan-300/40"
+                              style={{ fontFamily: font }}
+                            >
+                              {font}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <input
@@ -420,14 +491,6 @@ export function EditorShell() {
                 <button onClick={() => alignText('right')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
                   <AlignRight className="h-4 w-4" />
                 </button>
-                <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedElement.content?.dotLeaders)}
-                    onChange={(event) => updateElementContent(selectedElement.id, { dotLeaders: event.target.checked })}
-                  />
-                  Dot leaders
-                </label>
               </div>
             </motion.div>
           )}
@@ -469,9 +532,6 @@ export function EditorShell() {
               }}
             >
               <div className="absolute inset-6 rounded-[24px] border border-dashed border-slate-200/80" />
-              <div className="absolute left-8 top-8 rounded-full bg-slate-900 px-3 py-1 text-[11px] uppercase tracking-[.24em] text-white">
-                Safe area
-              </div>
               {page.canvas_data.fold_guides.map((guide) =>
                 guide.axis === 'x' ? (
                   <div
@@ -532,7 +592,7 @@ export function EditorShell() {
                           textAlign: String(el.style?.textAlign || 'left') as 'left' | 'center' | 'right',
                         }}
                       >
-                        {renderTextPreview(String(el.content?.text || ''), Boolean(el.content?.dotLeaders))}
+                        {String(el.content?.text || '')}
                       </div>
                     )
                   )}
@@ -555,7 +615,7 @@ export function EditorShell() {
                     <>
                       <button
                         onPointerDown={(event) => beginResize(event, el.id, el.width, el.height)}
-                        className="absolute -bottom-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-slate-950 text-white shadow-lg"
+                        className="absolute -bottom-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/80 text-slate-700 shadow-lg backdrop-blur"
                       >
                         <Maximize2 className="h-4 w-4" />
                       </button>
@@ -595,10 +655,6 @@ export function EditorShell() {
                 Properties
               </div>
               <div className="mt-4 grid gap-3 text-sm text-slate-300">
-                <div className="flex items-center justify-between rounded-2xl bg-slate-900/70 px-4 py-3">
-                  <span>Position</span>
-                  <span>{selectedElement ? `${selectedElement.x}, ${selectedElement.y}` : '—'}</span>
-                </div>
                 <div className="flex items-center justify-between rounded-2xl bg-slate-900/70 px-4 py-3">
                   <span>Size</span>
                   <span>{selectedElement ? `${selectedElement.width} × ${selectedElement.height}` : `${page.canvas_data.page.width_px} × ${page.canvas_data.page.height_px}`}</span>
