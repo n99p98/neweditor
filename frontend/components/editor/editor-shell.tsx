@@ -33,6 +33,8 @@ export function EditorShell() {
   const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements' | 'settings'>('text');
   const [fontSearch, setFontSearch] = useState('');
   const [showFontPicker, setShowFontPicker] = useState(false);
+  const addImageInputRef = useRef<HTMLInputElement | null>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const interactionState = useRef<
     | { mode: 'drag'; id: string; offsetX: number; offsetY: number }
@@ -113,6 +115,48 @@ export function EditorShell() {
     Letter: { width_px: 2550, height_px: 3300, width_mm: 216, height_mm: 279 },
     Legal: { width_px: 2550, height_px: 4200, width_mm: 216, height_mm: 356 },
   } as const;
+  const canvasInset = Math.max(12, (page.canvas_data.page.bleed_mm || 3) * 4);
+
+  const applyPaperPreset = (presetName: keyof typeof paperPresets, orientation: 'portrait' | 'landscape') => {
+    const preset = paperPresets[presetName];
+    const portrait = {
+      width_px: Math.min(preset.width_px, preset.height_px),
+      height_px: Math.max(preset.width_px, preset.height_px),
+      width_mm: Math.min(preset.width_mm, preset.height_mm),
+      height_mm: Math.max(preset.width_mm, preset.height_mm),
+    };
+
+    const landscape = {
+      width_px: portrait.height_px,
+      height_px: portrait.width_px,
+      width_mm: portrait.height_mm,
+      height_mm: portrait.width_mm,
+    };
+
+    updatePageSettings({
+      ...(orientation === 'landscape' ? landscape : portrait),
+      orientation,
+    });
+  };
+
+  const handleImageFile = async (file: File, mode: 'add' | 'replace') => {
+    const src = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+    if (mode === 'add') {
+      addImage({ src, alt: file.name });
+      setActiveTool('images');
+      return;
+    }
+
+    if (selectedElement?.type === 'image') {
+      updateElementContent(selectedElement.id, { src, alt: file.name });
+    }
+  };
 
   useEffect(() => {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
@@ -279,30 +323,28 @@ export function EditorShell() {
                 <div className="rounded-[24px] bg-white/5 p-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-semibold text-white">Photos & uploads</div>
-                  <button onClick={addImage} className="button-primary !px-4 !py-2 text-sm">
-                    Add photo
-                  </button>
+                    <button onClick={() => addImageInputRef.current?.click()} className="button-primary !px-4 !py-2 text-sm">
+                      Add photo
+                    </button>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     {['bg-gradient-to-br from-amber-100 via-rose-100 to-violet-100', 'bg-gradient-to-br from-cyan-100 via-sky-100 to-blue-200', 'bg-gradient-to-br from-slate-200 to-slate-400', 'bg-gradient-to-br from-violet-200 to-fuchsia-300'].map((style, index) => (
-                      <button key={style} onClick={addImage} className={`h-28 rounded-[20px] border border-white/10 ${style} ${index === 0 ? 'text-slate-900' : 'text-slate-800'} p-3 text-left shadow-inner`}>
+                      <button key={style} onClick={() => addImage()} className={`h-28 rounded-[20px] border border-white/10 ${style} ${index === 0 ? 'text-slate-900' : 'text-slate-800'} p-3 text-left shadow-inner`}>
                         <div className="text-xs font-semibold uppercase tracking-[.2em]">Photo</div>
                         <div className="mt-8 text-sm">Portrait frame</div>
                       </button>
                     ))}
                   </div>
-                  <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 px-4 py-3 text-sm text-slate-300 hover:border-cyan-300/30 hover:text-white">
+                  <button
+                    onClick={() => addImageInputRef.current?.click()}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 px-4 py-3 text-sm text-slate-300 hover:border-cyan-300/30 hover:text-white"
+                  >
                     <Upload className="h-4 w-4" />
                     Upload your own image
                   </button>
                   {selectedElement?.type === 'image' && (
                     <button
-                      onClick={() =>
-                        updateElementContent(selectedElement.id, {
-                          src: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80',
-                          alt: 'Replaced uploaded portrait placeholder',
-                        })
-                      }
+                      onClick={() => replaceImageInputRef.current?.click()}
                       className="mt-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 hover:border-cyan-300/40"
                     >
                       Replace selected image
@@ -362,10 +404,7 @@ export function EditorShell() {
                       onChange={(event) => {
                         const preset = paperPresets[event.target.value as keyof typeof paperPresets];
                         if (preset) {
-                          updatePageSettings({
-                            ...preset,
-                            orientation: page.canvas_data.page.orientation,
-                          });
+                          applyPaperPreset(event.target.value as keyof typeof paperPresets, page.canvas_data.page.orientation);
                         }
                       }}
                       value={
@@ -383,25 +422,11 @@ export function EditorShell() {
                     <select
                       className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm"
                       onChange={(event) =>
-                        updatePageSettings({
-                          orientation: event.target.value as 'portrait' | 'landscape',
-                          width_px:
-                            event.target.value === 'landscape'
-                              ? page.canvas_data.page.height_px
-                              : Math.min(page.canvas_data.page.width_px, page.canvas_data.page.height_px),
-                          height_px:
-                            event.target.value === 'landscape'
-                              ? page.canvas_data.page.width_px
-                              : Math.max(page.canvas_data.page.width_px, page.canvas_data.page.height_px),
-                          width_mm:
-                            event.target.value === 'landscape'
-                              ? page.canvas_data.page.height_mm
-                              : Math.min(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm),
-                          height_mm:
-                            event.target.value === 'landscape'
-                              ? page.canvas_data.page.width_mm
-                              : Math.max(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm),
-                        })
+                        applyPaperPreset(
+                          (Object.entries(paperPresets).find(([, preset]) => preset.width_mm === Math.min(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm))?.[0] ||
+                            'A4') as keyof typeof paperPresets,
+                          event.target.value as 'portrait' | 'landscape',
+                        )
                       }
                       value={page.canvas_data.page.orientation}
                     >
@@ -617,11 +642,7 @@ export function EditorShell() {
                   Image Eraser
                 </button>
                 <button
-                  onClick={() =>
-                    updateElementContent(selectedElement.id, {
-                      src: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80',
-                    })
-                  }
+                  onClick={() => replaceImageInputRef.current?.click()}
                   className="rounded-2xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100"
                 >
                   Replace by upload own
@@ -664,9 +685,13 @@ export function EditorShell() {
                 width: canvasWidth,
                 height: canvasHeight,
                 background,
+                transition: 'width 180ms ease, height 180ms ease',
               }}
             >
-              <div className="absolute inset-6 rounded-[24px] border border-dashed border-slate-200/80" />
+              <div
+                className="absolute rounded-[24px] border border-dashed border-slate-200/80 transition-all duration-200"
+                style={{ inset: canvasInset }}
+              />
               {page.canvas_data.fold_guides.map((guide) =>
                 guide.axis === 'x' ? (
                   <div
@@ -860,6 +885,32 @@ export function EditorShell() {
       </motion.aside>
       )}
       </AnimatePresence>
+      <input
+        ref={addImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            await handleImageFile(file, 'add');
+          }
+          event.currentTarget.value = '';
+        }}
+      />
+      <input
+        ref={replaceImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            await handleImageFile(file, 'replace');
+          }
+          event.currentTarget.value = '';
+        }}
+      />
     </div>
   );
 }

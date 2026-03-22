@@ -13,7 +13,7 @@ type State = {
   setSelectedElement: (id?: string) => void;
   setZoom: (zoom: number) => void;
   addText: () => void;
-  addImage: () => void;
+  addImage: (payload?: { src?: string; alt?: string }) => void;
   addShape: () => void;
   setBackgroundColor: (color: string) => void;
   updatePageSettings: (patch: {
@@ -72,7 +72,7 @@ export const useEditorStore = create<State>((set, get) => ({
 
       return { pages, ...pushHistory(state), selectedElementId: element.id };
     }),
-  addImage: () =>
+  addImage: (payload) =>
     set((state) => {
       const page = state.pages[state.activePage];
       const element: EditorElement = {
@@ -85,8 +85,8 @@ export const useEditorStore = create<State>((set, get) => ({
         rotation: 0,
         style: { borderRadius: 28 },
         content: {
-          src: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=80',
-          alt: 'Memorial portrait placeholder',
+          src: payload?.src || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=80',
+          alt: payload?.alt || 'Memorial portrait placeholder',
         },
       };
       const pages = [...state.pages];
