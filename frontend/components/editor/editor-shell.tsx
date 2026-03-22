@@ -1,5 +1,6 @@
 'use client';
 import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlignCenter,
   AlignLeft,
@@ -19,13 +20,19 @@ import {
   Underline,
   Undo2,
   Upload,
+  RotateCw,
+  Maximize2,
 } from 'lucide-react';
 import { useEditorStore } from '@/lib/store/editor-store';
 
 export function EditorShell() {
   const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements'>('text');
   const canvasRef = useRef<HTMLDivElement | null>(null);
-  const dragState = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const interactionState = useRef<
+    | { mode: 'drag'; id: string; offsetX: number; offsetY: number }
+    | { mode: 'resize'; id: string; startX: number; startY: number; width: number; height: number }
+    | null
+  >(null);
   const {
     pages,
     activePage,
@@ -65,25 +72,51 @@ export function EditorShell() {
   const canvasWidth = (page.canvas_data.page.width_px / 4) * zoom;
   const canvasHeight = (page.canvas_data.page.height_px / 4) * zoom;
   const background = page.canvas_data.background.color || '#ffffff';
+  const fontFamilies = [
+    'Inter',
+    'Playfair Display',
+    'Montserrat',
+    'Lora',
+    'Merriweather',
+    'Poppins',
+    'Libre Baskerville',
+    'Cormorant Garamond',
+    'DM Sans',
+    'Alegreya Sans',
+  ];
 
   useEffect(() => {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
-      if (!dragState.current || !canvasRef.current) {
+      if (!interactionState.current || !canvasRef.current) {
         return;
       }
 
       const rect = canvasRef.current.getBoundingClientRect();
-      const nextX = Math.max(0, Math.min((event.clientX - rect.left - dragState.current.offsetX) / zoom, page.canvas_data.page.width_px / 4));
-      const nextY = Math.max(0, Math.min((event.clientY - rect.top - dragState.current.offsetY) / zoom, page.canvas_data.page.height_px / 4));
+      const activeInteraction = interactionState.current;
 
-      updateElement(dragState.current.id, {
-        x: nextX * 4,
-        y: nextY * 4,
-      });
+      if (activeInteraction.mode === 'drag') {
+        const nextX = Math.max(0, Math.min((event.clientX - rect.left - activeInteraction.offsetX) / zoom, page.canvas_data.page.width_px / 4));
+        const nextY = Math.max(0, Math.min((event.clientY - rect.top - activeInteraction.offsetY) / zoom, page.canvas_data.page.height_px / 4));
+
+        updateElement(activeInteraction.id, {
+          x: nextX * 4,
+          y: nextY * 4,
+        });
+      }
+
+      if (activeInteraction.mode === 'resize') {
+        const deltaX = (event.clientX - activeInteraction.startX) / zoom;
+        const deltaY = (event.clientY - activeInteraction.startY) / zoom;
+
+        updateElement(activeInteraction.id, {
+          width: Math.max(120, (activeInteraction.width / 4 + deltaX) * 4),
+          height: Math.max(60, (activeInteraction.height / 4 + deltaY) * 4),
+        });
+      }
     };
 
     const handlePointerUp = () => {
-      dragState.current = null;
+      interactionState.current = null;
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -98,10 +131,24 @@ export function EditorShell() {
   const beginDrag = (event: PointerEvent<HTMLDivElement>, id: string) => {
     event.stopPropagation();
     const target = event.currentTarget.getBoundingClientRect();
-    dragState.current = {
+    interactionState.current = {
+      mode: 'drag',
       id,
       offsetX: event.clientX - target.left,
       offsetY: event.clientY - target.top,
+    };
+    setSelectedElement(id);
+  };
+
+  const beginResize = (event: PointerEvent<HTMLButtonElement>, id: string, width: number, height: number) => {
+    event.stopPropagation();
+    interactionState.current = {
+      mode: 'resize',
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      width,
+      height,
     };
     setSelectedElement(id);
   };
@@ -112,8 +159,16 @@ export function EditorShell() {
     updateElementStyle(selectedElementId, { textAlign: align });
   };
 
+  const renderTextPreview = (text: string, dotLeaders?: boolean) => {
+    if (!dotLeaders) return text;
+    const [left, right] = text.split('|').map((part) => part.trim());
+    if (!right) return text;
+
+    return `${left} ${'.'.repeat(28)} ${right}`;
+  };
+
   return (
-    <div className={`grid h-screen ${selectedElementId ? 'grid-cols-[88px_320px_minmax(0,1fr)_340px]' : 'grid-cols-[88px_320px_minmax(0,1fr)]'} bg-[#020617]`}>
+    <div className="grid h-screen grid-cols-[88px_320px_minmax(0,1fr)] bg-[#020617]">
       <aside className="flex flex-col items-center justify-between border-r border-white/10 bg-slate-950/90 px-3 py-5">
         <div className="flex w-full flex-col items-center gap-3">
           {toolGroups.map((tool) => {
@@ -265,7 +320,7 @@ export function EditorShell() {
         </div>
       </aside>
 
-      <main className="flex flex-col">
+      <main className="relative flex flex-col">
         <header className="flex h-20 items-center justify-between border-b border-white/10 bg-slate-950/60 px-6">
           <div className="flex items-center gap-4">
             <div>
@@ -295,67 +350,88 @@ export function EditorShell() {
           </div>
         </header>
 
-        {textToolsVisible && (
-          <div className="flex items-center justify-between border-b border-white/10 bg-[#08132d] px-6 py-3">
-            <div className="flex items-center gap-2">
-              <select
-                value={String(selectedElement.style?.fontFamily || 'Inter')}
-                onChange={(event) => updateElementStyle(selectedElement.id, { fontFamily: event.target.value })}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 outline-none"
-              >
-                <option>Inter</option>
-                <option>Playfair Display</option>
-                <option>Montserrat</option>
-                <option>Lora</option>
-              </select>
-              <select
-                value={String(selectedElement.style?.fontSize || 44)}
-                onChange={(event) => updateElementStyle(selectedElement.id, { fontSize: Number(event.target.value) })}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 outline-none"
-              >
-                {[24, 32, 44, 56, 72].map((size) => (
-                  <option key={size} value={size}>
-                    {size}px
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => updateElementStyle(selectedElement.id, { fontWeight: selectedElement.style?.fontWeight === 700 ? 500 : 700 })}
-                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
-              >
-                <Bold className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => updateElementStyle(selectedElement.id, { fontStyle: selectedElement.style?.fontStyle === 'italic' ? 'normal' : 'italic' })}
-                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
-              >
-                <Italic className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() =>
-                  updateElementStyle(selectedElement.id, {
-                    textDecoration: selectedElement.style?.textDecoration === 'underline' ? 'none' : 'underline',
-                  })
-                }
-                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
-              >
-                <Underline className="h-4 w-4" />
-              </button>
-              <button onClick={() => alignText('left')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
-                <AlignLeft className="h-4 w-4" />
-              </button>
-              <button onClick={() => alignText('center')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
-                <AlignCenter className="h-4 w-4" />
-              </button>
-              <button onClick={() => alignText('right')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
-                <AlignRight className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-400">
-              Text toolbox • click outside to close
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {textToolsVisible && (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="pointer-events-auto absolute left-6 right-6 top-[98px] z-30 rounded-[28px] border border-white/10 bg-[#08132d]/95 p-4 shadow-2xl backdrop-blur-xl"
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex max-w-[460px] gap-2 overflow-x-auto">
+                  {fontFamilies.map((font) => (
+                    <button
+                      key={font}
+                      onClick={() => updateElementStyle(selectedElement.id, { fontFamily: font })}
+                      className={`min-w-fit rounded-2xl border px-4 py-3 text-left text-sm ${
+                        selectedElement.style?.fontFamily === font ? 'border-cyan-300/60 bg-cyan-300/10 text-white' : 'border-white/10 bg-white/5 text-slate-300'
+                      }`}
+                      style={{ fontFamily: font }}
+                    >
+                      {font}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="number"
+                  min={4}
+                  max={200}
+                  value={Number(selectedElement.style?.fontSize || 44)}
+                  onChange={(event) => updateElementStyle(selectedElement.id, { fontSize: Number(event.target.value) })}
+                  className="w-24 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none"
+                />
+                <input
+                  type="color"
+                  value={String(selectedElement.style?.fill || '#0f172a')}
+                  onChange={(event) => updateElementStyle(selectedElement.id, { fill: event.target.value })}
+                  className="h-12 w-14 rounded-2xl border border-white/10 bg-transparent p-1"
+                />
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { fontWeight: selectedElement.style?.fontWeight === 700 ? 500 : 700 })}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+                >
+                  <Bold className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { fontStyle: selectedElement.style?.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+                >
+                  <Italic className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() =>
+                    updateElementStyle(selectedElement.id, {
+                      textDecoration: selectedElement.style?.textDecoration === 'underline' ? 'none' : 'underline',
+                    })
+                  }
+                  className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+                >
+                  <Underline className="h-4 w-4" />
+                </button>
+                <button onClick={() => alignText('left')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                  <AlignLeft className="h-4 w-4" />
+                </button>
+                <button onClick={() => alignText('center')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                  <AlignCenter className="h-4 w-4" />
+                </button>
+                <button onClick={() => alignText('right')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                  <AlignRight className="h-4 w-4" />
+                </button>
+                <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedElement.content?.dotLeaders)}
+                    onChange={(event) => updateElementContent(selectedElement.id, { dotLeaders: event.target.checked })}
+                  />
+                  Dot leaders
+                </label>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="flex items-center justify-between border-b border-white/10 bg-[#041029] px-6 py-4">
           <div className="flex items-center gap-3 text-sm text-slate-300">
@@ -382,7 +458,7 @@ export function EditorShell() {
           className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.09),transparent_20%),linear-gradient(180deg,#020617_0%,#020817_100%)] p-8"
           onPointerDown={() => setSelectedElement(undefined)}
         >
-          <div className="mx-auto flex w-fit rounded-[40px] border border-white/10 bg-slate-200 p-8 shadow-2xl">
+          <div className="mx-auto flex w-fit rounded-[40px] border border-white/10 bg-slate-200 p-8 pt-20 shadow-2xl transition-all duration-200">
             <div
               ref={canvasRef}
               className="relative overflow-hidden rounded-[32px] border border-slate-300 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.22)]"
@@ -417,18 +493,35 @@ export function EditorShell() {
                     height: (el.height / 4) * zoom,
                     borderRadius: Number(el.style?.borderRadius || 0) / 4,
                     opacity: Number(el.style?.opacity || 1),
+                    transform: `rotate(${el.rotation}deg)`,
+                    transformOrigin: 'center center',
                   }}
                 >
                   {el.type === 'text' && (
-                    <div className="h-full rounded-[inherit] bg-transparent p-1">
-                      <textarea
-                        value={String(el.content?.text || '')}
-                        onChange={(event) => updateElementContent(el.id, { text: event.target.value })}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          setSelectedElement(el.id);
-                        }}
-                        className="h-full w-full resize-none bg-transparent font-semibold outline-none"
+                    selectedElementId === el.id ? (
+                      <div className="h-full rounded-[inherit] bg-transparent p-1">
+                        <textarea
+                          value={String(el.content?.text || '')}
+                          onChange={(event) => updateElementContent(el.id, { text: event.target.value })}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedElement(el.id);
+                          }}
+                          className="h-full w-full resize-none bg-transparent font-semibold outline-none"
+                          style={{
+                            color: String(el.style?.fill || '#111827'),
+                            fontSize: (Number(el.style?.fontSize || 24) / 4) * zoom,
+                            fontFamily: String(el.style?.fontFamily || 'Inter'),
+                            fontStyle: String(el.style?.fontStyle || 'normal') as 'normal' | 'italic',
+                            fontWeight: Number(el.style?.fontWeight || 700),
+                            textDecoration: String(el.style?.textDecoration || 'none') as 'none' | 'underline',
+                            textAlign: String(el.style?.textAlign || 'left') as 'left' | 'center' | 'right',
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="whitespace-pre-wrap p-1 font-semibold"
                         style={{
                           color: String(el.style?.fill || '#111827'),
                           fontSize: (Number(el.style?.fontSize || 24) / 4) * zoom,
@@ -438,8 +531,10 @@ export function EditorShell() {
                           textDecoration: String(el.style?.textDecoration || 'none') as 'none' | 'underline',
                           textAlign: String(el.style?.textAlign || 'left') as 'left' | 'center' | 'right',
                         }}
-                      />
-                    </div>
+                      >
+                        {renderTextPreview(String(el.content?.text || ''), Boolean(el.content?.dotLeaders))}
+                      </div>
+                    )
                   )}
                   {el.type === 'image' && (
                     <div className="h-full w-full rounded-[inherit] bg-gradient-to-br from-slate-200 via-white to-slate-300 p-3">
@@ -456,6 +551,16 @@ export function EditorShell() {
                       }}
                     />
                   )}
+                  {selectedElementId === el.id && (
+                    <>
+                      <button
+                        onPointerDown={(event) => beginResize(event, el.id, el.width, el.height)}
+                        className="absolute -bottom-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-slate-950 text-white shadow-lg"
+                      >
+                        <Maximize2 className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
                 </div>,
               )}
             </div>
@@ -463,8 +568,15 @@ export function EditorShell() {
         </div>
       </main>
 
-      {selectedElementId && (
-      <aside className="border-l border-white/10 bg-[#040b20] p-5">
+      <AnimatePresence>
+        {selectedElementId && selectedElement && (
+      <motion.aside
+        initial={{ opacity: 0, x: 24 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: 24 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+        className="absolute bottom-0 right-0 top-0 w-[340px] border-l border-white/10 bg-[#040b20]/96 p-5 backdrop-blur-xl"
+      >
         <div className="panel h-full p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400/20 to-violet-500/20 text-cyan-200">
@@ -500,11 +612,34 @@ export function EditorShell() {
 
             <div className="rounded-[24px] bg-white/5 p-4">
               <div className="text-sm font-semibold text-white">Typography</div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-4 grid gap-3">
+                <label className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">
+                  Rotation
+                  <div className="mt-2 flex items-center gap-3">
+                    <RotateCw className="h-4 w-4 text-slate-400" />
+                    <input
+                      type="range"
+                      min={0}
+                      max={360}
+                      value={Number(selectedElement?.rotation || 0)}
+                      onChange={(event) => updateElement(selectedElement.id, { rotation: Number(event.target.value) })}
+                      className="w-full"
+                    />
+                  </div>
+                </label>
+                <label className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">
+                  Font size
+                  <input
+                    type="range"
+                    min={4}
+                    max={200}
+                    value={Number(selectedElement?.style?.fontSize || 44)}
+                    onChange={(event) => updateElementStyle(selectedElement.id, { fontSize: Number(event.target.value) })}
+                    className="mt-2 w-full"
+                  />
+                </label>
                 <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Font family<br /><span className="text-slate-400">{String(selectedElement?.style?.fontFamily || 'Inter')}</span></button>
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Size<br /><span className="text-slate-400">{String(selectedElement?.style?.fontSize || 44)} px</span></button>
                 <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Color<br /><span className="text-slate-400">{String(selectedElement?.style?.fill || '#0f172a')}</span></button>
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Alignment<br /><span className="text-slate-400">{String(selectedElement?.style?.textAlign || 'left')}</span></button>
               </div>
             </div>
 
@@ -520,8 +655,9 @@ export function EditorShell() {
             </div>
           </div>
         </div>
-      </aside>
+      </motion.aside>
       )}
+      </AnimatePresence>
     </div>
   );
 }
