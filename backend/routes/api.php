@@ -35,7 +35,9 @@ Route::get('paper-sizes', [PaperSizeController::class, 'index']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('projects', ProjectController::class);
     Route::post('projects/{project}/duplicate', [ProjectController::class, 'duplicate']);
+    Route::get('uploads', [UploadController::class, 'index']);
     Route::post('uploads', [UploadController::class, 'store']);
+    Route::delete('uploads/{upload}', [UploadController::class, 'destroy']);
     Route::get('dashboard', [DashboardController::class, 'index']);
 
     Route::post('exports/preview', [ExportController::class, 'preview']);

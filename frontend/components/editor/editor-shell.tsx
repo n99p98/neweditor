@@ -17,6 +17,7 @@ import {
   Search,
   Shapes,
   Sparkles,
+  Trash2,
   Type,
   Underline,
   Undo2,
@@ -33,6 +34,7 @@ export function EditorShell() {
   const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements' | 'settings'>('text');
   const [fontSearch, setFontSearch] = useState('');
   const [showFontPicker, setShowFontPicker] = useState(false);
+  const [uploadedAssets, setUploadedAssets] = useState<Array<{ id: string; name: string; previewUrl: string; size: number }>>([]);
   const addImageInputRef = useRef<HTMLInputElement | null>(null);
   const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -116,6 +118,7 @@ export function EditorShell() {
     Legal: { width_px: 2550, height_px: 4200, width_mm: 216, height_mm: 356 },
   } as const;
   const canvasInset = Math.max(12, (page.canvas_data.page.bleed_mm || 3) * 4);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL;
 
   const applyPaperPreset = (presetName: keyof typeof paperPresets, orientation: 'portrait' | 'landscape') => {
     const preset = paperPresets[presetName];
@@ -147,6 +150,38 @@ export function EditorShell() {
       reader.readAsDataURL(file);
     });
 
+    const nextAsset = {
+      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}`,
+      name: file.name,
+      previewUrl: src,
+      size: file.size,
+    };
+
+    if (apiBase) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('kind', 'image');
+        const response = await fetch(`${apiBase}/uploads`, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const payload = await response.json();
+          nextAsset.id = String(payload?.data?.id ?? nextAsset.id);
+        }
+      } catch {
+        // allow demo fallback to local preview-only asset
+      }
+    }
+
+    setUploadedAssets((current) => {
+      const withoutSameName = current.filter((asset) => asset.name !== nextAsset.name);
+      return [nextAsset, ...withoutSameName];
+    });
+
     if (mode === 'add') {
       addImage({ src, alt: file.name });
       setActiveTool('images');
@@ -156,6 +191,36 @@ export function EditorShell() {
     if (selectedElement?.type === 'image') {
       updateElementContent(selectedElement.id, { src, alt: file.name });
     }
+  };
+
+  const handleDeleteUpload = async (assetId: string) => {
+    if (apiBase && /^\d+$/.test(assetId)) {
+      try {
+        await fetch(`${apiBase}/uploads/${assetId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+      } catch {
+        // local cleanup still proceeds
+      }
+    }
+
+    setUploadedAssets((current) => current.filter((asset) => asset.id !== assetId));
+  };
+
+  const handleDeleteSelectedElement = () => {
+    if (!selectedElementId) return;
+
+    const nextPages = [...pages];
+    nextPages[activePage] = {
+      ...page,
+      canvas_data: {
+        ...page.canvas_data,
+        elements: page.canvas_data.elements.filter((element) => element.id !== selectedElementId),
+      },
+    };
+
+    useEditorStore.setState({ pages: nextPages, selectedElementId: undefined });
   };
 
   useEffect(() => {
@@ -200,6 +265,31 @@ export function EditorShell() {
       window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [page.canvas_data.page.height_px, page.canvas_data.page.width_px, updateElement, zoom]);
+
+  useEffect(() => {
+    if (!apiBase) return;
+
+    const controller = new AbortController();
+    fetch(`${apiBase}/uploads`, { credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((payload) => {
+        if (!payload?.data) return;
+        setUploadedAssets(
+          payload.data.map((asset: { id: number; original_name: string; size: number }) => ({
+            id: String(asset.id),
+            name: asset.original_name,
+            size: asset.size,
+            previewUrl: '',
+          })),
+        );
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [apiBase]);
 
   const beginDrag = (event: PointerEvent<HTMLDivElement>, id: string) => {
     event.stopPropagation();
@@ -349,6 +439,31 @@ export function EditorShell() {
                     >
                       Replace selected image
                     </button>
+                  )}
+                  {uploadedAssets.length > 0 && (
+                    <div className="mt-4 rounded-[24px] border border-white/10 bg-slate-950/40 p-3">
+                      <div className="mb-3 text-xs uppercase tracking-[.2em] text-slate-400">Uploaded library</div>
+                      <div className="space-y-2">
+                        {uploadedAssets.map((asset) => (
+                          <div key={asset.id} className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-3">
+                            <button
+                              onClick={() =>
+                                addImage({
+                                  src: asset.previewUrl || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=80',
+                                  alt: asset.name,
+                                })
+                              }
+                              className="truncate pr-3 text-left text-sm text-slate-100"
+                            >
+                              {asset.name}
+                            </button>
+                            <button onClick={() => handleDeleteUpload(asset.id)} className="rounded-xl p-2 text-rose-300 hover:bg-rose-400/10">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </>
@@ -582,6 +697,12 @@ export function EditorShell() {
                 <button onClick={() => alignText('right')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
                   <AlignRight className="h-4 w-4" />
                 </button>
+                <button
+                  onClick={handleDeleteSelectedElement}
+                  className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-3 text-rose-200"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             </motion.div>
           )}
@@ -646,6 +767,13 @@ export function EditorShell() {
                   className="rounded-2xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100"
                 >
                   Replace by upload own
+                </button>
+                <button
+                  onClick={handleDeleteSelectedElement}
+                  className="rounded-2xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200"
+                >
+                  <Trash2 className="mr-2 inline h-4 w-4" />
+                  Delete image
                 </button>
               </div>
             </motion.div>
@@ -891,11 +1019,12 @@ export function EditorShell() {
         accept="image/*"
         className="hidden"
         onChange={async (event) => {
+          const input = event.currentTarget;
           const file = event.target.files?.[0];
           if (file) {
             await handleImageFile(file, 'add');
           }
-          event.currentTarget.value = '';
+          input.value = '';
         }}
       />
       <input
@@ -904,11 +1033,12 @@ export function EditorShell() {
         accept="image/*"
         className="hidden"
         onChange={async (event) => {
+          const input = event.currentTarget;
           const file = event.target.files?.[0];
           if (file) {
             await handleImageFile(file, 'replace');
           }
-          event.currentTarget.value = '';
+          input.value = '';
         }}
       />
     </div>
