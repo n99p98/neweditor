@@ -17,6 +17,8 @@ type State = {
   addShape: () => void;
   setBackgroundColor: (color: string) => void;
   updateElement: (id: string, patch: Partial<EditorElement>) => void;
+  updateElementStyle: (id: string, stylePatch: Record<string, unknown>) => void;
+  updateElementContent: (id: string, contentPatch: Record<string, unknown>) => void;
   undo: () => void;
   redo: () => void;
 };
@@ -133,6 +135,42 @@ export const useEditorStore = create<State>((set, get) => ({
               canvas_data: {
                 ...page.canvas_data,
                 elements: page.canvas_data.elements.map((el) => (el.id === id ? { ...el, ...patch } : el)),
+              },
+            },
+      );
+
+      return { pages, selectedElementId: id };
+    }),
+  updateElementStyle: (id, stylePatch) =>
+    set((state) => {
+      const pages = state.pages.map((page, idx) =>
+        idx !== state.activePage
+          ? page
+          : {
+              ...page,
+              canvas_data: {
+                ...page.canvas_data,
+                elements: page.canvas_data.elements.map((el) =>
+                  el.id === id ? { ...el, style: { ...el.style, ...stylePatch } } : el,
+                ),
+              },
+            },
+      );
+
+      return { pages, selectedElementId: id };
+    }),
+  updateElementContent: (id, contentPatch) =>
+    set((state) => {
+      const pages = state.pages.map((page, idx) =>
+        idx !== state.activePage
+          ? page
+          : {
+              ...page,
+              canvas_data: {
+                ...page.canvas_data,
+                elements: page.canvas_data.elements.map((el) =>
+                  el.id === id ? { ...el, content: { ...el.content, ...contentPatch } } : el,
+                ),
               },
             },
       );

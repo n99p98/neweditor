@@ -1,9 +1,14 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
   ChevronDown,
   Download,
   Image as ImageIcon,
+  Italic,
   Layers3,
   LayoutTemplate,
   Palette,
@@ -11,6 +16,7 @@ import {
   Shapes,
   Sparkles,
   Type,
+  Underline,
   Undo2,
   Upload,
 } from 'lucide-react';
@@ -18,10 +24,28 @@ import { useEditorStore } from '@/lib/store/editor-store';
 
 export function EditorShell() {
   const [activeTool, setActiveTool] = useState<'templates' | 'text' | 'images' | 'background' | 'elements'>('text');
-  const { pages, activePage, addText, addImage, addShape, setBackgroundColor, selectedElementId, setSelectedElement, undo, redo, zoom, setZoom } =
-    useEditorStore();
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const dragState = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const {
+    pages,
+    activePage,
+    addText,
+    addImage,
+    addShape,
+    setBackgroundColor,
+    selectedElementId,
+    setSelectedElement,
+    undo,
+    redo,
+    zoom,
+    setZoom,
+    updateElement,
+    updateElementStyle,
+    updateElementContent,
+  } = useEditorStore();
   const page = pages[activePage];
   const selectedElement = page?.canvas_data.elements.find((element) => element.id === selectedElementId);
+  const textToolsVisible = selectedElement?.type === 'text';
 
   const toolGroups = useMemo(
     () => [
@@ -42,8 +66,54 @@ export function EditorShell() {
   const canvasHeight = (page.canvas_data.page.height_px / 4) * zoom;
   const background = page.canvas_data.background.color || '#ffffff';
 
+  useEffect(() => {
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      if (!dragState.current || !canvasRef.current) {
+        return;
+      }
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const nextX = Math.max(0, Math.min((event.clientX - rect.left - dragState.current.offsetX) / zoom, page.canvas_data.page.width_px / 4));
+      const nextY = Math.max(0, Math.min((event.clientY - rect.top - dragState.current.offsetY) / zoom, page.canvas_data.page.height_px / 4));
+
+      updateElement(dragState.current.id, {
+        x: nextX * 4,
+        y: nextY * 4,
+      });
+    };
+
+    const handlePointerUp = () => {
+      dragState.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [page.canvas_data.page.height_px, page.canvas_data.page.width_px, updateElement, zoom]);
+
+  const beginDrag = (event: PointerEvent<HTMLDivElement>, id: string) => {
+    event.stopPropagation();
+    const target = event.currentTarget.getBoundingClientRect();
+    dragState.current = {
+      id,
+      offsetX: event.clientX - target.left,
+      offsetY: event.clientY - target.top,
+    };
+    setSelectedElement(id);
+  };
+
+  const alignText = (align: 'left' | 'center' | 'right') => {
+    if (!selectedElementId) return;
+
+    updateElementStyle(selectedElementId, { textAlign: align });
+  };
+
   return (
-    <div className="grid h-screen grid-cols-[88px_320px_minmax(0,1fr)_340px] bg-[#020617]">
+    <div className={`grid h-screen ${selectedElementId ? 'grid-cols-[88px_320px_minmax(0,1fr)_340px]' : 'grid-cols-[88px_320px_minmax(0,1fr)]'} bg-[#020617]`}>
       <aside className="flex flex-col items-center justify-between border-r border-white/10 bg-slate-950/90 px-3 py-5">
         <div className="flex w-full flex-col items-center gap-3">
           {toolGroups.map((tool) => {
@@ -225,6 +295,68 @@ export function EditorShell() {
           </div>
         </header>
 
+        {textToolsVisible && (
+          <div className="flex items-center justify-between border-b border-white/10 bg-[#08132d] px-6 py-3">
+            <div className="flex items-center gap-2">
+              <select
+                value={String(selectedElement.style?.fontFamily || 'Inter')}
+                onChange={(event) => updateElementStyle(selectedElement.id, { fontFamily: event.target.value })}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 outline-none"
+              >
+                <option>Inter</option>
+                <option>Playfair Display</option>
+                <option>Montserrat</option>
+                <option>Lora</option>
+              </select>
+              <select
+                value={String(selectedElement.style?.fontSize || 44)}
+                onChange={(event) => updateElementStyle(selectedElement.id, { fontSize: Number(event.target.value) })}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 outline-none"
+              >
+                {[24, 32, 44, 56, 72].map((size) => (
+                  <option key={size} value={size}>
+                    {size}px
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => updateElementStyle(selectedElement.id, { fontWeight: selectedElement.style?.fontWeight === 700 ? 500 : 700 })}
+                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+              >
+                <Bold className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => updateElementStyle(selectedElement.id, { fontStyle: selectedElement.style?.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+              >
+                <Italic className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() =>
+                  updateElementStyle(selectedElement.id, {
+                    textDecoration: selectedElement.style?.textDecoration === 'underline' ? 'none' : 'underline',
+                  })
+                }
+                className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200"
+              >
+                <Underline className="h-4 w-4" />
+              </button>
+              <button onClick={() => alignText('left')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                <AlignLeft className="h-4 w-4" />
+              </button>
+              <button onClick={() => alignText('center')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                <AlignCenter className="h-4 w-4" />
+              </button>
+              <button onClick={() => alignText('right')} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-slate-200">
+                <AlignRight className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-400">
+              Text toolbox • click outside to close
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between border-b border-white/10 bg-[#041029] px-6 py-4">
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-cyan-200">Front panel</span>
@@ -246,9 +378,13 @@ export function EditorShell() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.09),transparent_20%),linear-gradient(180deg,#020617_0%,#020817_100%)] p-8">
+        <div
+          className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.09),transparent_20%),linear-gradient(180deg,#020617_0%,#020817_100%)] p-8"
+          onPointerDown={() => setSelectedElement(undefined)}
+        >
           <div className="mx-auto flex w-fit rounded-[40px] border border-white/10 bg-slate-200 p-8 shadow-2xl">
             <div
+              ref={canvasRef}
               className="relative overflow-hidden rounded-[32px] border border-slate-300 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.22)]"
               style={{
                 width: canvasWidth,
@@ -270,10 +406,10 @@ export function EditorShell() {
                 ) : null,
               )}
               {page.canvas_data.elements.map((el) =>
-                <button
+                <div
                   key={el.id}
-                  onClick={() => setSelectedElement(el.id)}
-                  className={`absolute overflow-hidden text-left transition ${selectedElementId === el.id ? 'ring-2 ring-cyan-300 ring-offset-2 ring-offset-white' : ''}`}
+                  onPointerDown={(event) => beginDrag(event, el.id)}
+                  className={`absolute cursor-move overflow-hidden text-left transition ${selectedElementId === el.id ? 'ring-2 ring-cyan-300 ring-offset-2 ring-offset-white' : ''}`}
                   style={{
                     left: (el.x / 4) * zoom,
                     top: (el.y / 4) * zoom,
@@ -284,14 +420,25 @@ export function EditorShell() {
                   }}
                 >
                   {el.type === 'text' && (
-                    <div
-                      className="whitespace-pre-wrap font-semibold"
-                      style={{
-                        color: String(el.style?.fill || '#111827'),
-                        fontSize: (Number(el.style?.fontSize || 24) / 4) * zoom,
-                      }}
-                    >
-                      {String(el.content?.text || '')}
+                    <div className="h-full rounded-[inherit] bg-transparent p-1">
+                      <textarea
+                        value={String(el.content?.text || '')}
+                        onChange={(event) => updateElementContent(el.id, { text: event.target.value })}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          setSelectedElement(el.id);
+                        }}
+                        className="h-full w-full resize-none bg-transparent font-semibold outline-none"
+                        style={{
+                          color: String(el.style?.fill || '#111827'),
+                          fontSize: (Number(el.style?.fontSize || 24) / 4) * zoom,
+                          fontFamily: String(el.style?.fontFamily || 'Inter'),
+                          fontStyle: String(el.style?.fontStyle || 'normal') as 'normal' | 'italic',
+                          fontWeight: Number(el.style?.fontWeight || 700),
+                          textDecoration: String(el.style?.textDecoration || 'none') as 'none' | 'underline',
+                          textAlign: String(el.style?.textAlign || 'left') as 'left' | 'center' | 'right',
+                        }}
+                      />
                     </div>
                   )}
                   {el.type === 'image' && (
@@ -304,16 +451,19 @@ export function EditorShell() {
                   {el.type === 'shape' && (
                     <div
                       className="h-full w-full rounded-[inherit]"
-                      style={{ background: String(el.style?.fill || '#38bdf8') }}
+                      style={{
+                        background: String(el.style?.fill || '#38bdf8'),
+                      }}
                     />
                   )}
-                </button>,
+                </div>,
               )}
             </div>
           </div>
         </div>
       </main>
 
+      {selectedElementId && (
       <aside className="border-l border-white/10 bg-[#040b20] p-5">
         <div className="panel h-full p-5">
           <div className="flex items-center gap-3">
@@ -351,10 +501,10 @@ export function EditorShell() {
             <div className="rounded-[24px] bg-white/5 p-4">
               <div className="text-sm font-semibold text-white">Typography</div>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Font family<br /><span className="text-slate-400">Inter</span></button>
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Size<br /><span className="text-slate-400">44 px</span></button>
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Color<br /><span className="text-slate-400">#0f172a</span></button>
-                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Shadow<br /><span className="text-slate-400">Soft</span></button>
+                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Font family<br /><span className="text-slate-400">{String(selectedElement?.style?.fontFamily || 'Inter')}</span></button>
+                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Size<br /><span className="text-slate-400">{String(selectedElement?.style?.fontSize || 44)} px</span></button>
+                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Color<br /><span className="text-slate-400">{String(selectedElement?.style?.fill || '#0f172a')}</span></button>
+                <button className="rounded-2xl bg-slate-900/70 px-4 py-3 text-left text-sm">Alignment<br /><span className="text-slate-400">{String(selectedElement?.style?.textAlign || 'left')}</span></button>
               </div>
             </div>
 
@@ -371,6 +521,7 @@ export function EditorShell() {
           </div>
         </div>
       </aside>
+      )}
     </div>
   );
 }
