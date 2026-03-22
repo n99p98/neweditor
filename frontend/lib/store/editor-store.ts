@@ -16,6 +16,14 @@ type State = {
   addImage: () => void;
   addShape: () => void;
   setBackgroundColor: (color: string) => void;
+  updatePageSettings: (patch: {
+    width_px?: number;
+    height_px?: number;
+    width_mm?: number;
+    height_mm?: number;
+    orientation?: 'portrait' | 'landscape';
+    bleed_mm?: number;
+  }) => void;
   updateElement: (id: string, patch: Partial<EditorElement>) => void;
   updateElementStyle: (id: string, stylePatch: Record<string, unknown>) => void;
   updateElementContent: (id: string, contentPatch: Record<string, unknown>) => void;
@@ -120,6 +128,23 @@ export const useEditorStore = create<State>((set, get) => ({
         canvas_data: {
           ...page.canvas_data,
           background: { ...page.canvas_data.background, type: 'solid', color },
+        },
+      };
+
+      return { pages, ...pushHistory(state) };
+    }),
+  updatePageSettings: (patch) =>
+    set((state) => {
+      const page = state.pages[state.activePage];
+      const pages = [...state.pages];
+      pages[state.activePage] = {
+        ...page,
+        canvas_data: {
+          ...page.canvas_data,
+          page: {
+            ...page.canvas_data.page,
+            ...patch,
+          },
         },
       };
 

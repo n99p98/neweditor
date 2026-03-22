@@ -13,6 +13,7 @@ import {
   Layers3,
   LayoutTemplate,
   Palette,
+  Settings2,
   Search,
   Shapes,
   Sparkles,
@@ -22,6 +23,9 @@ import {
   Upload,
   RotateCw,
   Maximize2,
+  FlipHorizontal2,
+  Crop,
+  Eraser,
 } from 'lucide-react';
 import { useEditorStore } from '@/lib/store/editor-store';
 
@@ -51,10 +55,12 @@ export function EditorShell() {
     updateElement,
     updateElementStyle,
     updateElementContent,
+    updatePageSettings,
   } = useEditorStore();
   const page = pages[activePage];
   const selectedElement = page?.canvas_data.elements.find((element) => element.id === selectedElementId);
   const textToolsVisible = selectedElement?.type === 'text';
+  const imageToolsVisible = selectedElement?.type === 'image';
 
   const toolGroups = useMemo(
     () => [
@@ -63,7 +69,7 @@ export function EditorShell() {
       { id: 'images', label: 'Photos', icon: ImageIcon },
       { id: 'background', label: 'Background', icon: Palette },
       { id: 'elements', label: 'Elements', icon: Shapes },
-      { id: 'settings', label: 'Settings', icon: Sparkles },
+      { id: 'settings', label: 'Settings', icon: Settings2 },
     ] as const,
     [],
   );
@@ -101,6 +107,12 @@ export function EditorShell() {
     'Work Sans',
   ].sort((a, b) => a.localeCompare(b));
   const filteredFonts = fontFamilies.filter((font) => font.toLowerCase().includes(fontSearch.toLowerCase()));
+  const paperPresets = {
+    A5: { width_px: 1748, height_px: 2480, width_mm: 148, height_mm: 210 },
+    A4: { width_px: 2480, height_px: 3508, width_mm: 210, height_mm: 297 },
+    Letter: { width_px: 2550, height_px: 3300, width_mm: 216, height_mm: 279 },
+    Legal: { width_px: 2550, height_px: 4200, width_mm: 216, height_mm: 356 },
+  } as const;
 
   useEffect(() => {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
@@ -267,9 +279,9 @@ export function EditorShell() {
                 <div className="rounded-[24px] bg-white/5 p-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-semibold text-white">Photos & uploads</div>
-                    <button onClick={addImage} className="button-primary !px-4 !py-2 text-sm">
-                      Add photo
-                    </button>
+                  <button onClick={addImage} className="button-primary !px-4 !py-2 text-sm">
+                    Add photo
+                  </button>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     {['bg-gradient-to-br from-amber-100 via-rose-100 to-violet-100', 'bg-gradient-to-br from-cyan-100 via-sky-100 to-blue-200', 'bg-gradient-to-br from-slate-200 to-slate-400', 'bg-gradient-to-br from-violet-200 to-fuchsia-300'].map((style, index) => (
@@ -283,6 +295,19 @@ export function EditorShell() {
                     <Upload className="h-4 w-4" />
                     Upload your own image
                   </button>
+                  {selectedElement?.type === 'image' && (
+                    <button
+                      onClick={() =>
+                        updateElementContent(selectedElement.id, {
+                          src: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80',
+                          alt: 'Replaced uploaded portrait placeholder',
+                        })
+                      }
+                      className="mt-3 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 hover:border-cyan-300/40"
+                    >
+                      Replace selected image
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -332,27 +357,68 @@ export function EditorShell() {
                 <div className="mt-4 space-y-3">
                   <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
                     Paper size
-                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
+                    <select
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm"
+                      onChange={(event) => {
+                        const preset = paperPresets[event.target.value as keyof typeof paperPresets];
+                        if (preset) {
+                          updatePageSettings({
+                            ...preset,
+                            orientation: page.canvas_data.page.orientation,
+                          });
+                        }
+                      }}
+                      value={
+                        Object.entries(paperPresets).find(([, preset]) => preset.width_mm === page.canvas_data.page.width_mm)?.[0] || 'A4'
+                      }
+                    >
                       <option>A4</option>
                       <option>A5</option>
                       <option>Letter</option>
                       <option>Legal</option>
-                      <option>Custom</option>
                     </select>
                   </label>
                   <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
                     Orientation
-                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
+                    <select
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm"
+                      onChange={(event) =>
+                        updatePageSettings({
+                          orientation: event.target.value as 'portrait' | 'landscape',
+                          width_px:
+                            event.target.value === 'landscape'
+                              ? page.canvas_data.page.height_px
+                              : Math.min(page.canvas_data.page.width_px, page.canvas_data.page.height_px),
+                          height_px:
+                            event.target.value === 'landscape'
+                              ? page.canvas_data.page.width_px
+                              : Math.max(page.canvas_data.page.width_px, page.canvas_data.page.height_px),
+                          width_mm:
+                            event.target.value === 'landscape'
+                              ? page.canvas_data.page.height_mm
+                              : Math.min(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm),
+                          height_mm:
+                            event.target.value === 'landscape'
+                              ? page.canvas_data.page.width_mm
+                              : Math.max(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm),
+                        })
+                      }
+                      value={page.canvas_data.page.orientation}
+                    >
                       <option>Portrait</option>
                       <option>Landscape</option>
                     </select>
                   </label>
                   <label className="block rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
                     Border / bleed
-                    <select className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm">
-                      <option>3 mm print bleed</option>
-                      <option>5 mm safe margin</option>
-                      <option>No border</option>
+                    <select
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm"
+                      onChange={(event) => updatePageSettings({ bleed_mm: Number(event.target.value) })}
+                      value={page.canvas_data.page.bleed_mm || 3}
+                    >
+                      <option value={3}>3 mm print bleed</option>
+                      <option value={5}>5 mm safe margin</option>
+                      <option value={0}>No border</option>
                     </select>
                   </label>
                 </div>
@@ -496,6 +562,75 @@ export function EditorShell() {
           )}
         </AnimatePresence>
 
+        <AnimatePresence>
+          {imageToolsVisible && (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="pointer-events-auto absolute left-6 right-[364px] top-[98px] z-30 rounded-[28px] border border-white/10 bg-[#08132d]/95 p-4 shadow-2xl backdrop-blur-xl"
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                  Transparency
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    value={Math.round(Number(selectedElement.style?.opacity || 1) * 100)}
+                    onChange={(event) => updateElementStyle(selectedElement.id, { opacity: Number(event.target.value) / 100 })}
+                    className="mt-2 block w-40"
+                  />
+                </label>
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { grayscale: !(selectedElement.style?.grayscale as boolean) })}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200"
+                >
+                  Manage Grayscale
+                </button>
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { borderRadius: 32, frameStyle: 'rounded' })}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200"
+                >
+                  Apply frames
+                </button>
+                <button
+                  onClick={() => updateElement(selectedElement.id, { width: 560, height: 560 })}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200"
+                >
+                  <Crop className="mr-2 inline h-4 w-4" />
+                  Crop
+                </button>
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { flipX: !(selectedElement.style?.flipX as boolean) })}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200"
+                >
+                  <FlipHorizontal2 className="mr-2 inline h-4 w-4" />
+                  Flip
+                </button>
+                <button
+                  onClick={() => updateElementStyle(selectedElement.id, { backgroundRemoved: !(selectedElement.style?.backgroundRemoved as boolean) })}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200"
+                >
+                  <Eraser className="mr-2 inline h-4 w-4" />
+                  Image Eraser
+                </button>
+                <button
+                  onClick={() =>
+                    updateElementContent(selectedElement.id, {
+                      src: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=1200&q=80',
+                    })
+                  }
+                  className="rounded-2xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100"
+                >
+                  Replace by upload own
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="flex items-center justify-between border-b border-white/10 bg-[#041029] px-6 py-4">
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-cyan-200">Front panel</span>
@@ -553,7 +688,7 @@ export function EditorShell() {
                     height: (el.height / 4) * zoom,
                     borderRadius: Number(el.style?.borderRadius || 0) / 4,
                     opacity: Number(el.style?.opacity || 1),
-                    transform: `rotate(${el.rotation}deg)`,
+                    transform: `rotate(${el.rotation}deg) scaleX(${el.style?.flipX ? -1 : 1})`,
                     transformOrigin: 'center center',
                   }}
                 >
@@ -597,9 +732,20 @@ export function EditorShell() {
                     )
                   )}
                   {el.type === 'image' && (
-                    <div className="h-full w-full rounded-[inherit] bg-gradient-to-br from-slate-200 via-white to-slate-300 p-3">
-                      <div className="flex h-full w-full items-end rounded-[inherit] bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_40%),linear-gradient(180deg,rgba(15,23,42,0.08),rgba(15,23,42,0.18))] p-4 text-sm font-semibold text-slate-800">
-                        Portrait image
+                    <div
+                      className="h-full w-full rounded-[inherit] bg-gradient-to-br from-slate-200 via-white to-slate-300 p-3"
+                      style={{
+                        filter: `${el.style?.grayscale ? 'grayscale(1)' : 'none'}`,
+                      }}
+                    >
+                      <div
+                        className={`flex h-full w-full items-end rounded-[inherit] p-4 text-sm font-semibold text-slate-800 ${
+                          el.style?.backgroundRemoved
+                            ? 'border border-dashed border-cyan-300 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.35),transparent_45%)]'
+                            : 'bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_40%),linear-gradient(180deg,rgba(15,23,42,0.08),rgba(15,23,42,0.18))]'
+                        }`}
+                      >
+                        {String(el.content?.alt || 'Portrait image')}
                       </div>
                     </div>
                   )}
@@ -652,16 +798,16 @@ export function EditorShell() {
             <div className="rounded-[24px] bg-white/5 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Layers3 className="h-4 w-4 text-cyan-200" />
-                Properties
+                Layer overview
               </div>
               <div className="mt-4 grid gap-3 text-sm text-slate-300">
                 <div className="flex items-center justify-between rounded-2xl bg-slate-900/70 px-4 py-3">
-                  <span>Size</span>
-                  <span>{selectedElement ? `${selectedElement.width} × ${selectedElement.height}` : `${page.canvas_data.page.width_px} × ${page.canvas_data.page.height_px}`}</span>
+                  <span>Element footprint</span>
+                  <span>{selectedElement ? `${Math.round(selectedElement.width)} × ${Math.round(selectedElement.height)}` : `${page.canvas_data.page.width_px} × ${page.canvas_data.page.height_px}`}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-2xl bg-slate-900/70 px-4 py-3">
-                  <span>Layer status</span>
-                  <span>{selectedElement ? 'Editable' : 'Canvas locked'}</span>
+                  <span>Editing mode</span>
+                  <span>{selectedElement?.type === 'image' ? 'Photo controls ready' : selectedElement ? 'Typography active' : 'Canvas locked'}</span>
                 </div>
               </div>
             </div>
