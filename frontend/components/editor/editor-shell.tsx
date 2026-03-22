@@ -157,6 +157,8 @@ export function EditorShell() {
       size: file.size,
     };
 
+    let uploadSucceeded = !apiBase;
+
     if (apiBase) {
       try {
         const formData = new FormData();
@@ -171,10 +173,15 @@ export function EditorShell() {
         if (response.ok) {
           const payload = await response.json();
           nextAsset.id = String(payload?.data?.id ?? nextAsset.id);
+          uploadSucceeded = true;
         }
       } catch {
         // allow demo fallback to local preview-only asset
       }
+    }
+
+    if (!uploadSucceeded) {
+      return;
     }
 
     setUploadedAssets((current) => {
@@ -447,13 +454,8 @@ export function EditorShell() {
                         {uploadedAssets.map((asset) => (
                           <div key={asset.id} className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-3">
                             <button
-                              onClick={() =>
-                                addImage({
-                                  src: asset.previewUrl || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=80',
-                                  alt: asset.name,
-                                })
-                              }
-                              className="truncate pr-3 text-left text-sm text-slate-100"
+                              onClick={() => asset.previewUrl && addImage({ src: asset.previewUrl, alt: asset.name })}
+                              className={`truncate pr-3 text-left text-sm ${asset.previewUrl ? 'text-slate-100' : 'text-slate-500'}`}
                             >
                               {asset.name}
                             </button>
@@ -523,7 +525,7 @@ export function EditorShell() {
                         }
                       }}
                       value={
-                        Object.entries(paperPresets).find(([, preset]) => preset.width_mm === page.canvas_data.page.width_mm)?.[0] || 'A4'
+                        Object.entries(paperPresets).find(([, preset]) => preset.width_mm === Math.min(page.canvas_data.page.width_mm, page.canvas_data.page.height_mm))?.[0] || 'A4'
                       }
                     >
                       <option>A4</option>
@@ -805,7 +807,7 @@ export function EditorShell() {
           className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.09),transparent_20%),linear-gradient(180deg,#020617_0%,#020817_100%)] p-8"
           onPointerDown={() => setSelectedElement(undefined)}
         >
-          <div className="mx-auto flex w-fit rounded-[40px] border border-white/10 bg-slate-200 p-8 pt-20 shadow-2xl transition-all duration-200">
+          <div className="mx-auto flex w-fit pt-20 transition-all duration-200">
             <div
               ref={canvasRef}
               className="relative overflow-hidden rounded-[32px] border border-slate-300 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.22)]"

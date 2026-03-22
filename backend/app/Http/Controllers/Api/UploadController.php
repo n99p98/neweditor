@@ -8,17 +8,21 @@ use Illuminate\Http\JsonResponse;
 class UploadController extends Controller {
  public function __construct(private readonly UploadService $uploads) {}
  public function index(): JsonResponse {
-  return response()->json(['data' => $this->uploads->listForUser(auth()->id())->map(fn (Upload $upload) => [
+  $userId = auth()->id();
+  abort_unless($userId, 401);
+  return response()->json(['data' => $this->uploads->listForUser($userId)->map(fn (Upload $upload) => [
    'id' => $upload->id,
    'kind' => $upload->kind,
    'mime_type' => $upload->mime_type,
    'size' => $upload->size,
    'original_name' => $upload->meta['original_name'] ?? basename($upload->path),
    'created_at' => $upload->created_at,
-  ])]);
+ ])]);
  }
  public function store(StoreUploadRequest $request): JsonResponse {
-  $upload = $this->uploads->store($request->file('file'), $request->user()->id, $request->string('kind')->toString());
+  $userId = $request->user()?->id;
+  abort_unless($userId, 401);
+  $upload = $this->uploads->store($request->file('file'), $userId, $request->string('kind')->toString());
   return response()->json(['data'=>[
    'id' => $upload->id,
    'kind' => $upload->kind,
