@@ -1,4 +1,47 @@
-@tailwind base; @tailwind components; @tailwind utilities;
-:root { color-scheme: light; }
-body { @apply bg-slate-950 text-slate-50 antialiased; }
-.panel { @apply rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-white/10;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-slate-950 text-slate-50 antialiased;
+    background-image:
+      radial-gradient(circle at top, rgba(103, 232, 249, 0.16), transparent 28%),
+      radial-gradient(circle at right top, rgba(168, 85, 247, 0.16), transparent 22%),
+      linear-gradient(180deg, #020617 0%, #020817 45%, #020617 100%);
+  }
+
+  a {
+    @apply transition-colors duration-200;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-[28px] border border-white/10 bg-white/5 shadow-2xl shadow-cyan-950/20 backdrop-blur-xl;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center rounded-2xl bg-cyan-300 px-5 py-3 font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-200;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-medium text-white transition hover:bg-white/10;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-white placeholder:text-slate-400 focus:border-cyan-300/50 focus:outline-none focus:ring-2 focus:ring-cyan-300/20;
+  }
+}
